@@ -1,0 +1,10 @@
+[install]
+# Evita instalar el paquete npm `bun` (peerDep de bun-plugin-tailwind)
+# que rompería `bun run` al meter su placeholder en node_modules/.bin/.
+# El usuario ya tiene Bun en el PATH del sistema.
+peer = false
+
+[serve.static]
+plugins = ["bun-plugin-tailwind"]
+env = "BUN_PUBLIC_*"
+publicDir = "public"

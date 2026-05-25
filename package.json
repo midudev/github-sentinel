@@ -2,16 +2,30 @@
   "name": "github-sentinel",
   "type": "module",
   "version": "0.0.1",
-  "engines": {
-    "node": ">=22.12.0"
-  },
   "scripts": {
-    "dev": "astro dev",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
+    "dev": "bun --hot src/server/index.ts",
+    "start": "bun src/server/index.ts",
+    "start:prod": "NODE_ENV=production bun src/server/index.ts",
+    "build": "bun build.ts",
+    "service": "bun scripts/service.ts",
+    "service:install": "bun scripts/service.ts install",
+    "service:uninstall": "bun scripts/service.ts uninstall",
+    "service:start": "bun scripts/service.ts start",
+    "service:stop": "bun scripts/service.ts stop",
+    "service:restart": "bun scripts/service.ts restart",
+    "service:status": "bun scripts/service.ts status",
+    "service:logs": "bun scripts/service.ts logs"
   },
   "dependencies": {
-    "astro": "^6.3.7"
+    "bun-plugin-tailwind": "0.1.2",
+    "geist": "1.7.1",
+    "react": "19",
+    "react-dom": "19",
+    "tailwindcss": "4.1.11"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "19",
+    "@types/react-dom": "19"
   }
 }
