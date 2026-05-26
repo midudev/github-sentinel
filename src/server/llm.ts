@@ -516,8 +516,8 @@ export async function prioritizePullRequests(
       focus.push({
         id,
         priority: normalizePriority(raw.priority),
-        reason: cleanShortText(raw.reason, 120),
-        action: cleanShortText(raw.action, 100),
+        reason: cleanShortText(raw.reason, 110),
+        action: cleanShortText(raw.action, 40),
       });
       if (focus.length >= 3) break;
     }
