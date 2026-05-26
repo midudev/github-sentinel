@@ -105,18 +105,8 @@
     background: transparent;
   }
 
-  .blink {
-    animation: blink 1.1s steps(2, jump-none) infinite;
-  }
-
   .glow {
     text-shadow: 0 0 12px rgba(57, 255, 136, 0.55);
-  }
-}
-
-@keyframes blink {
-  to {
-    opacity: 0.15;
   }
 }
 
