@@ -106,7 +106,7 @@ export function App() {
 
         <section className="mb-12">
           <SectionTitle index="02" title="notifications" />
-          <NotifyPanel status={status} />
+          <NotifyPanel status={status} onChange={refresh} />
         </section>
 
         <section>

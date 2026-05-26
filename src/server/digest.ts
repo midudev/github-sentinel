@@ -8,28 +8,22 @@ import {
   type DigestContext,
 } from "./whatsapp";
 
-const CHECK_INTERVAL_MS = 60_000;
-const LAST_SLOT_KEY = "digest:last_slot";
 const LAST_SENT_AT_KEY = "digest:last_sent_at";
 
-let timer: Timer | null = null;
-
-type Slot = "morning" | "evening";
-
-type LocalTime = {
-  date: string;
-  hour: number;
-  minute: number;
+type CronJobHandle = {
+  stop(): CronJobHandle;
 };
 
-function nowInTimezone(timezone: string): LocalTime {
+type LocalTime = {
+  hour: number;
+};
+
+let digestJob: CronJobHandle | null = null;
+
+function localTimeInTimezone(timezone: string): LocalTime {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
     hour: "2-digit",
-    minute: "2-digit",
     hour12: false,
   }).formatToParts(new Date());
 
@@ -37,43 +31,25 @@ function nowInTimezone(timezone: string): LocalTime {
     parts.find((p) => p.type === type)?.value ?? "00";
 
   return {
-    date: `${get("year")}-${get("month")}-${get("day")}`,
     hour: Number(get("hour")),
-    minute: Number(get("minute")),
   };
 }
 
-function slotKey(local: LocalTime, slot: Slot): string {
-  return `${local.date}:${slot}`;
+function currentDigestSlot(timezone: string): DigestContext["slot"] {
+  return localTimeInTimezone(timezone).hour < 12 ? "morning" : "evening";
 }
 
-async function maybeSend(): Promise<void> {
+async function runScheduledDigest(): Promise<void> {
   const cfg = whatsappConfig();
   if (!cfg.enabled || !cfg.configured) return;
 
-  const local = nowInTimezone(cfg.timezone);
-
-  const due: Slot | null =
-    local.hour === cfg.morningHour
-      ? "morning"
-      : local.hour === cfg.eveningHour
-        ? "evening"
-        : null;
-
-  if (!due) return;
-
-  const key = slotKey(local, due);
-  const last = queries.getSetting.get(LAST_SLOT_KEY)?.value;
-  if (last === key) return;
-
+  const slot = currentDigestSlot(cfg.timezone);
   try {
-    await runDigest({ slot: due, timezone: cfg.timezone });
-    queries.setSetting.run(LAST_SLOT_KEY, key);
-    queries.setSetting.run(LAST_SENT_AT_KEY, new Date().toISOString());
-    console.log(`[digest] ${new Date().toISOString()} enviado slot=${due}`);
+    await runDigest({ slot, timezone: cfg.timezone });
+    console.log(`[digest] ${new Date().toISOString()} enviado cron="${cfg.cron}"`);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[digest] error enviando slot=${due}: ${msg}`);
+    console.error(`[digest] error enviando cron="${cfg.cron}": ${msg}`);
   }
 }
 
@@ -83,7 +59,7 @@ export async function runDigest(ctx: DigestContext): Promise<{
   issues: number;
 }> {
   const items = collectDigestItems(sentinelStatus().lastRun);
-  const message = buildDigestMessage(items, ctx);
+  const message = await buildDigestMessage(items, ctx);
   await sendWhatsApp(message);
   queries.setSetting.run(LAST_SENT_AT_KEY, new Date().toISOString());
   return {
@@ -93,21 +69,21 @@ export async function runDigest(ctx: DigestContext): Promise<{
   };
 }
 
-export function previewDigest(ctx: DigestContext): {
+export async function previewDigest(ctx: DigestContext): Promise<{
   message: string;
   prs: number;
   issues: number;
-} {
+}> {
   const items = collectDigestItems(sentinelStatus().lastRun);
   return {
-    message: buildDigestMessage(items, ctx),
+    message: await buildDigestMessage(items, ctx),
     prs: items.prs.length + items.truncatedPRs,
     issues: items.issues.length + items.truncatedIssues,
   };
 }
 
 export function startDigestScheduler(): void {
-  if (timer) return;
+  if (digestJob) return;
   const cfg = whatsappConfig();
   if (!cfg.configured) {
     console.log(
@@ -115,26 +91,43 @@ export function startDigestScheduler(): void {
     );
     return;
   }
-  console.log(
-    `[digest] activo · ${cfg.timezone} · ${cfg.morningHour}:00 y ${cfg.eveningHour}:00`
-  );
-  timer = setInterval(() => {
-    void maybeSend();
-  }, CHECK_INTERVAL_MS);
+  if (!cfg.enabled) {
+    console.log("[digest] WhatsApp desactivado por WHATSAPP_ENABLED=false.");
+    return;
+  }
+
+  try {
+    digestJob = Bun.cron(cfg.cron, runScheduledDigest);
+    console.log(
+      `[digest] activo · cron="${cfg.cron}" UTC · formato ${cfg.timezone}`
+    );
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[digest] cron inválido "${cfg.cron}": ${msg}`);
+  }
 }
 
 export function stopDigestScheduler(): void {
-  if (timer) clearInterval(timer);
-  timer = null;
+  digestJob?.stop();
+  digestJob = null;
+}
+
+function nextDigestRun(cron: string): string | null {
+  try {
+    return Bun.cron.parse(cron)?.toISOString() ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export function digestStatus(): {
   config: ReturnType<typeof whatsappConfig>;
   lastSent: string | null;
-  lastSlot: string | null;
+  nextRunAt: string | null;
 } {
   const config = whatsappConfig();
   const lastSent = queries.getSetting.get(LAST_SENT_AT_KEY)?.value ?? null;
-  const lastSlot = queries.getSetting.get(LAST_SLOT_KEY)?.value ?? null;
-  return { config, lastSent, lastSlot };
+  const nextRunAt =
+    config.enabled && config.configured ? nextDigestRun(config.cron) : null;
+  return { config, lastSent, nextRunAt };
 }

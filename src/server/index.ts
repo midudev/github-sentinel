@@ -104,8 +104,8 @@ const server = serve({
           whatsapp: {
             ...digest.config,
             lastSent: digest.lastSent,
+            nextRunAt: digest.nextRunAt,
           },
-          githubUser: process.env.GITHUB_USER ?? null,
           platform: process.platform,
         });
       },
@@ -115,7 +115,7 @@ const server = serve({
       async GET() {
         const cfg = digestStatus().config;
         return json(
-          previewDigest({ slot: "manual", timezone: cfg.timezone })
+          await previewDigest({ slot: "manual", timezone: cfg.timezone })
         );
       },
     },

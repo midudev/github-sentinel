@@ -1,9 +1,14 @@
 import { queries, type IssueWithRepo, type PullRequestWithRepo } from "./db";
+import {
+  prioritizePullRequests,
+  type PullRequestPriorityResult,
+} from "./llm";
 
 const CALLMEBOT_URL = "https://api.callmebot.com/whatsapp.php";
 
 const MAX_MESSAGE_LENGTH = 3500;
-const MAX_PRS_IN_DIGEST = 15;
+const MAX_PRS_FOR_PRIORITY = 12;
+const MAX_PR_DESCRIPTION_CHARS = 500;
 const MAX_ISSUES_IN_DIGEST = 10;
 
 export type WhatsAppConfig = {
@@ -11,8 +16,7 @@ export type WhatsAppConfig = {
   configured: boolean;
   phone: string | null;
   timezone: string;
-  morningHour: number;
-  eveningHour: number;
+  cron: string;
 };
 
 export function whatsappConfig(): WhatsAppConfig {
@@ -24,15 +28,8 @@ export function whatsappConfig(): WhatsAppConfig {
     configured: Boolean(phone && apikey),
     phone: phone ? maskPhone(phone) : null,
     timezone: process.env.WHATSAPP_TIMEZONE ?? "Europe/Madrid",
-    morningHour: clampHour(process.env.WHATSAPP_MORNING_HOUR, 9),
-    eveningHour: clampHour(process.env.WHATSAPP_EVENING_HOUR, 18),
+    cron: process.env.WHATSAPP_DIGEST_CRON?.trim() || "0 9,18 * * *",
   };
-}
-
-function clampHour(raw: string | undefined, fallback: number): number {
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(23, Math.max(0, Math.floor(n)));
 }
 
 function maskPhone(phone: string): string {
@@ -89,9 +86,9 @@ export function collectDigestItems(lastScan: string | null = null): DigestItems 
   const prsAll = queries.listOpenExternalPRs.all();
   const issuesAll = queries.listOpenHighRiskIssues.all();
   return {
-    prs: prsAll.slice(0, MAX_PRS_IN_DIGEST),
+    prs: prsAll.slice(0, MAX_PRS_FOR_PRIORITY),
     issues: issuesAll.slice(0, MAX_ISSUES_IN_DIGEST),
-    truncatedPRs: Math.max(0, prsAll.length - MAX_PRS_IN_DIGEST),
+    truncatedPRs: Math.max(0, prsAll.length - MAX_PRS_FOR_PRIORITY),
     truncatedIssues: Math.max(0, issuesAll.length - MAX_ISSUES_IN_DIGEST),
     totals: {
       repos: queries.listRepos.all().length,
@@ -108,10 +105,10 @@ export type DigestContext = {
   timezone: string;
 };
 
-export function buildDigestMessage(
+export async function buildDigestMessage(
   items: DigestItems,
   ctx: DigestContext
-): string {
+): Promise<string> {
   const greeting =
     ctx.slot === "morning"
       ? "Buenos días"
@@ -145,20 +142,12 @@ export function buildDigestMessage(
   }
 
   if (items.prs.length > 0) {
-    lines.push(
-      `*PRs externos a revisar (${items.prs.length}${items.truncatedPRs ? `+${items.truncatedPRs}` : ""})*`
-    );
-    for (const pr of items.prs) {
-      const age = relativeAge(pr.created_at);
-      lines.push(
-        `• ${pr.owner}/${pr.repo_name} #${pr.pr_number} _by ${pr.author ?? "anon"}_ · ${age}`
-      );
-      lines.push(`  ${truncate(pr.title, 90)}`);
-      lines.push(`  ${pr.html_url}`);
-    }
-    if (items.truncatedPRs > 0) {
-      lines.push(`  …y ${items.truncatedPRs} más`);
-    }
+    const total = items.prs.length + items.truncatedPRs;
+    const focus = await buildPullRequestFocus(items.prs);
+
+    lines.push(`*Foco PRs externos (${total} abiertos)*`);
+    if (focus.summary) lines.push(`_${focus.summary}_`);
+    appendPullRequestFocus(lines, items.prs, focus);
     lines.push("");
   }
 
@@ -188,6 +177,86 @@ export function buildDigestMessage(
 function truncate(s: string, max: number): string {
   if (s.length <= max) return s;
   return `${s.slice(0, max - 1).trimEnd()}…`;
+}
+
+async function buildPullRequestFocus(
+  prs: PullRequestWithRepo[]
+): Promise<PullRequestPriorityResult> {
+  const input = prs.map((pr) => ({
+    id: prKey(pr),
+    repo: `${pr.owner}/${pr.repo_name}`,
+    number: pr.pr_number,
+    title: truncate(cleanText(pr.title), 160),
+    description: pr.body
+      ? truncate(cleanText(pr.body), MAX_PR_DESCRIPTION_CHARS)
+      : null,
+    author: pr.author,
+    age: relativeAge(pr.created_at),
+    comments: pr.comments,
+    labels: parseLabels(pr.labels),
+    url: pr.html_url,
+  }));
+
+  try {
+    return await prioritizePullRequests(input);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[digest] priorización IA de PRs no disponible: ${msg}`);
+    return {
+      summary: "IA no disponible; foco provisional por antigüedad.",
+      focus: input.slice(0, 3).map((pr) => ({
+        id: pr.id,
+        priority: "medium",
+        reason: `Lleva abierta ${pr.age}.`,
+        action: "Revisar si bloquea roadmap o cerrar si no aplica.",
+      })),
+    };
+  }
+}
+
+function appendPullRequestFocus(
+  lines: string[],
+  prs: PullRequestWithRepo[],
+  focus: PullRequestPriorityResult
+): void {
+  const byId = new Map(prs.map((pr) => [prKey(pr), pr]));
+
+  if (focus.focus.length === 0) {
+    lines.push("No hay una PR claramente prioritaria ahora mismo.");
+    return;
+  }
+
+  for (const item of focus.focus) {
+    const pr = byId.get(item.id);
+    if (!pr) continue;
+    const age = relativeAge(pr.created_at);
+    lines.push(
+      `• *${item.priority.toUpperCase()}* ${pr.owner}/${pr.repo_name} #${pr.pr_number} · ${age}`
+    );
+    lines.push(`  ${truncate(pr.title, 90)}`);
+    if (item.reason) lines.push(`  Por qué: ${item.reason}`);
+    if (item.action) lines.push(`  Acción: ${item.action}`);
+    lines.push(`  ${pr.html_url}`);
+  }
+}
+
+function prKey(pr: PullRequestWithRepo): string {
+  return `${pr.owner}/${pr.repo_name}#${pr.pr_number}`;
+}
+
+function cleanText(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function parseLabels(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const labels = JSON.parse(raw) as unknown;
+    if (!Array.isArray(labels)) return [];
+    return labels.filter((label): label is string => typeof label === "string");
+  } catch {
+    return [];
+  }
 }
 
 function relativeAge(iso: string): string {

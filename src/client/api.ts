@@ -54,11 +54,10 @@ export type Status = {
     configured: boolean;
     phone: string | null;
     timezone: string;
-    morningHour: number;
-    eveningHour: number;
+    cron: string;
     lastSent: string | null;
+    nextRunAt: string | null;
   };
-  githubUser: string | null;
 };
 
 export type DigestPreview = {

@@ -20,23 +20,25 @@ export function Header({ status, onCheck, checking }: Props) {
               GITHUB SENTINEL
             </h1>
             <p className="text-[10px] uppercase tracking-[0.2em] text-[var(--color-fg-3)]">
-              local watchtower {status?.githubUser ? `· @${status.githubUser}` : ""}
+              local watchtower
             </p>
           </div>
         </div>
 
-        <div className="ml-auto flex items-center gap-5 text-xs text-[var(--color-fg-3)]">
-          <StatusPill
-            label="GitHub"
-            ok={true}
-            value={status ? "ok" : "..."}
-          />
-          <StatusPill
-            label="LLM"
-            ok={Boolean(llm?.available)}
-            value={llm?.available ? llm.model : "offline"}
-          />
-          <div className="hidden md:flex flex-col items-end text-[10px]">
+        <div className="ml-auto flex items-center gap-7 text-xs text-[var(--color-fg-3)]">
+          <div className="flex items-center gap-6">
+            <StatusPill
+              label="GitHub"
+              ok={true}
+              value={status ? "ok" : "..."}
+            />
+            <StatusPill
+              label="LLM"
+              ok={Boolean(llm?.available)}
+              value={llm?.available ? llm.model : "offline"}
+            />
+          </div>
+          <div className="hidden md:flex items-baseline gap-2 text-[10px] whitespace-nowrap">
             <span className="uppercase tracking-[0.18em] text-[var(--color-fg-4)]">
               last check
             </span>
@@ -47,7 +49,7 @@ export function Header({ status, onCheck, checking }: Props) {
           <button
             onClick={onCheck}
             disabled={checking}
-            className="font-pixel uppercase text-xs px-3 py-2 border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-[var(--color-ink-0)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="font-pixel uppercase text-xs px-3 py-2 border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-[var(--color-ink-0)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
           >
             {checking ? "scanning..." : "scan now"}
           </button>
@@ -67,10 +69,10 @@ function StatusPill({
   value: string;
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2 whitespace-nowrap">
       <span
         className={`w-1.5 h-1.5 rounded-full ${
-          ok ? "bg-[var(--color-accent)] blink" : "bg-[var(--color-fg-4)]"
+          ok ? "bg-[var(--color-accent)]" : "bg-[var(--color-warn)]"
         }`}
       />
       <span className="text-[10px] uppercase tracking-[0.18em] text-[var(--color-fg-4)]">

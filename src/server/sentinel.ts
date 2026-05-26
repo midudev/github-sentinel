@@ -8,33 +8,23 @@ import {
 } from "./github";
 import { analyzeIssue, isLLMAvailable } from "./llm";
 
-function internalAuthorsSet(): Set<string> {
-  const set = new Set<string>();
-  const ghUser = process.env.GITHUB_USER?.toLowerCase();
-  if (ghUser) set.add(ghUser);
-  for (const raw of (process.env.INTERNAL_AUTHORS ?? "").split(",")) {
-    const v = raw.trim().toLowerCase();
-    if (v) set.add(v);
-  }
-  return set;
-}
-
 function isExternalAuthor(
   author: GitHubPullRequest["user"],
-  repoOwner: string,
-  internal: Set<string>
+  repoOwner: string
 ): boolean {
   if (!author?.login) return false;
   if (author.type === "Bot") return false;
   if (/\[bot\]$/i.test(author.login)) return false;
   const login = author.login.toLowerCase();
   if (login === repoOwner.toLowerCase()) return false;
-  if (internal.has(login)) return false;
   return true;
 }
 
 const POLL_INTERVAL_MS = Number(
   process.env.SENTINEL_INTERVAL_MS ?? 1000 * 60 * 30
+);
+const SCAN_ON_START = ["1", "true", "yes"].includes(
+  (process.env.SENTINEL_SCAN_ON_START ?? "").toLowerCase()
 );
 
 let timer: Timer | null = null;
@@ -57,7 +47,6 @@ function labelName(l: GitHubIssue["labels"][number]): string {
 async function checkRepo(repo: RepoRow): Promise<CheckResult> {
   const repoKey = `${repo.owner}/${repo.name}`;
   const now = new Date().toISOString();
-  const internal = internalAuthorsSet();
 
   try {
     const meta = await getRepo(repo.owner, repo.name);
@@ -102,7 +91,7 @@ async function checkRepo(repo: RepoRow): Promise<CheckResult> {
       openPRs = prs.length;
       const seenPrNumbers: number[] = [];
       for (const pr of prs) {
-        const external = isExternalAuthor(pr.user, repo.owner, internal);
+        const external = isExternalAuthor(pr.user, repo.owner);
         if (external && !pr.draft) externalPRs++;
         const labels = pr.labels.map(labelName);
         queries.upsertPullRequest.run(
@@ -260,7 +249,13 @@ export function startScheduler() {
   console.log(
     `[sentinel] polling cada ${(POLL_INTERVAL_MS / 1000 / 60).toFixed(0)} min`
   );
-  void runCheck();
+  if (SCAN_ON_START) {
+    void runCheck();
+  } else {
+    console.log(
+      "[sentinel] scan inicial desactivado; usa SCAN NOW o espera al siguiente polling"
+    );
+  }
   timer = setInterval(() => {
     void runCheck();
   }, POLL_INTERVAL_MS);
