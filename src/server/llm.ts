@@ -74,7 +74,6 @@ const ISSUE_RESPONSE_FORMAT = {
   type: "json_schema",
   json_schema: {
     name: "issue_analysis",
-    strict: true,
     schema: {
       type: "object",
       additionalProperties: false,
@@ -97,7 +96,6 @@ const PR_PRIORITY_RESPONSE_FORMAT = {
   type: "json_schema",
   json_schema: {
     name: "pull_request_priority",
-    strict: true,
     schema: {
       type: "object",
       additionalProperties: false,
