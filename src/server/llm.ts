@@ -81,16 +81,18 @@ Tu trabajo es elegir como máximo 3 PRs externas que merecen foco ahora.
 Prioriza impacto, urgencia, riesgo, antigüedad, bloqueos probables y facilidad de revisión.
 Usa SOLO repo, título, descripción de la PR, autor, labels, comentarios y edad.
 No pidas ver archivos, no menciones diffs, no inventes datos y no listes todas las PRs.
+Cada PR elegida se enviará como WhatsApp independiente: la razón debe ser la única frase del cuerpo.
+Máxima densidad: sin "por qué", sin "acción", sin etiquetas, sin introducciones.
 Devuelve UN SOLO JSON válido (sin texto extra, sin markdown, sin backticks) con esta forma exacta:
 
 {
-  "summary": "frase corta del estado general, máximo 140 caracteres",
+  "summary": "frase ultra corta del estado general, máximo 80 caracteres",
   "focus": [
     {
       "id": "owner/repo#123",
       "priority": "high" | "medium" | "low",
-      "reason": "por qué importa ahora, máximo 120 caracteres",
-      "action": "qué hacer, máximo 100 caracteres"
+      "reason": "frase directa en español sobre el impacto, máximo 110 caracteres",
+      "action": ""
     }
   ]
 }`;
@@ -522,7 +524,7 @@ export async function prioritizePullRequests(
   }
 
   return {
-    summary: cleanShortText(parsed.summary, 140),
+    summary: cleanShortText(parsed.summary, 80),
     focus,
   };
 }
