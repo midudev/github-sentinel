@@ -196,7 +196,7 @@ function buildPullRequestMessages(
   focus: PullRequestPriorityResult
 ): string[] {
   const byId = new Map(prs.map((pr) => [prKey(pr), pr]));
-  const messages: string[] = [];
+  const blocks: string[] = [];
 
   for (const item of focus.focus) {
     const pr = byId.get(item.id);
@@ -214,10 +214,10 @@ function buildPullRequestMessages(
       pr.html_url,
     ];
 
-    messages.push(lines.join("\n"));
+    blocks.push(lines.join("\n"));
   }
 
-  return messages;
+  return blocks.length > 0 ? [blocks.join("\n\n")] : [];
 }
 
 async function buildPullRequestFocus(

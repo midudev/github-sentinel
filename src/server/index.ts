@@ -25,6 +25,10 @@ import {
 
 const PORT = Number(process.env.PORT ?? 3741);
 const HOST = process.env.HOST ?? "127.0.0.1";
+const IDLE_TIMEOUT_SECONDS = positiveInt(
+  process.env.SERVER_IDLE_TIMEOUT_SECONDS,
+  60
+);
 
 const PROJECT_ROOT = process.cwd();
 const PUBLIC_DIR = resolve(PROJECT_ROOT, "public");
@@ -36,6 +40,11 @@ function json(data: unknown, init?: ResponseInit) {
 
 function badRequest(message: string) {
   return json({ error: message }, { status: 400 });
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
 }
 
 function serveStatic(req: Request) {
@@ -59,6 +68,7 @@ function serveStatic(req: Request) {
 const server = serve({
   port: PORT,
   hostname: HOST,
+  idleTimeout: IDLE_TIMEOUT_SECONDS,
 
   error(err) {
     console.error(`[sentinel] ${ts()} unhandled server error:`, err);

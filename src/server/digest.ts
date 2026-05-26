@@ -14,6 +14,14 @@ const WHATSAPP_SEND_INTERVAL_MS = positiveInt(
   5000
 );
 
+type DigestRunResult = {
+  message: string;
+  messages: string[];
+  sent: number;
+  prs: number;
+  issues: number;
+};
+
 type CronJobHandle = {
   stop(): CronJobHandle;
 };
@@ -23,6 +31,8 @@ type LocalTime = {
 };
 
 let digestJob: CronJobHandle | null = null;
+let activeDigest: Promise<DigestRunResult> | null = null;
+let activeDigestStartedAt: string | null = null;
 
 function localTimeInTimezone(timezone: string): LocalTime {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -68,13 +78,7 @@ async function runScheduledDigest(): Promise<void> {
   }
 }
 
-export async function runDigest(ctx: DigestContext): Promise<{
-  message: string;
-  messages: string[];
-  sent: number;
-  prs: number;
-  issues: number;
-}> {
+async function executeDigest(ctx: DigestContext): Promise<DigestRunResult> {
   const items = collectDigestItems(sentinelStatus().lastRun);
   const messages = await buildDigestMessages(items, ctx);
   for (const [index, message] of messages.entries()) {
@@ -96,6 +100,23 @@ export async function runDigest(ctx: DigestContext): Promise<{
     prs: items.prs.length + items.truncatedPRs,
     issues: items.issues.length + items.truncatedIssues,
   };
+}
+
+export async function runDigest(ctx: DigestContext): Promise<DigestRunResult> {
+  if (activeDigest) {
+    console.warn(
+      `[digest] ejecución ya en curso desde ${activeDigestStartedAt}; reutilizando resultado`
+    );
+    return activeDigest;
+  }
+
+  activeDigestStartedAt = new Date().toISOString();
+  activeDigest = executeDigest(ctx).finally(() => {
+    activeDigest = null;
+    activeDigestStartedAt = null;
+  });
+
+  return activeDigest;
 }
 
 export async function previewDigest(ctx: DigestContext): Promise<{
