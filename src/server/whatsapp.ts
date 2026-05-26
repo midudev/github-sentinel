@@ -121,7 +121,7 @@ export async function buildDigestMessages(
 
   if (items.prs.length > 0) {
     const focus = await buildPullRequestFocus(items.prs);
-    return buildPullRequestMessages(items.prs, focus, time);
+    return buildPullRequestMessages(items.prs, focus);
   }
 
   return [buildFallbackDigestMessage(items, ctx, time)];
@@ -193,8 +193,7 @@ function truncate(s: string, max: number): string {
 
 function buildPullRequestMessages(
   prs: PullRequestWithRepo[],
-  focus: PullRequestPriorityResult,
-  time: string
+  focus: PullRequestPriorityResult
 ): string[] {
   const byId = new Map(prs.map((pr) => [prKey(pr), pr]));
   const messages: string[] = [];
@@ -203,25 +202,17 @@ function buildPullRequestMessages(
     const pr = byId.get(item.id);
     if (!pr) continue;
 
-    const meta = [
-      `${pr.owner}/${pr.repo_name}#${pr.pr_number}`,
-      relativeAge(pr.created_at),
-      pr.comments > 0 ? `${pr.comments}c` : null,
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    const labels = parseLabels(pr.labels).slice(0, 3).join(", ");
+    const meta = `${pr.owner}/${pr.repo_name}#${pr.pr_number} · ${relativeAge(
+      pr.created_at
+    )}`;
+    const reason = item.reason || truncate(cleanText(pr.title), 110);
 
     const lines = [
-      `*PR ${item.priority.toUpperCase()}* ${meta}`,
-      truncate(cleanText(pr.title), 120),
+      `*${item.priority.toUpperCase()}* ${meta}`,
+      truncate(reason, 120),
       "",
-      item.reason ? `Por qué: ${truncate(item.reason, 150)}` : null,
-      item.action ? `Acción: ${truncate(item.action, 130)}` : null,
-      labels ? `Labels: ${truncate(labels, 90)}` : null,
-      `_${time}_`,
       pr.html_url,
-    ].filter((line): line is string => line !== null);
+    ];
 
     messages.push(lines.join("\n"));
   }
@@ -257,8 +248,8 @@ async function buildPullRequestFocus(
       focus: input.slice(0, 3).map((pr) => ({
         id: pr.id,
         priority: "medium",
-        reason: `Lleva abierta ${pr.age}.`,
-        action: "Revisar si bloquea roadmap o cerrar si no aplica.",
+        reason: `PR externa abierta desde hace ${pr.age}; revisar si bloquea algo importante.`,
+        action: "",
       })),
     };
   }
