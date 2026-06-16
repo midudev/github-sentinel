@@ -1,4 +1,6 @@
 import { queries, type IssueWithRepo, type PullRequestWithRepo } from "./db";
+import { ensureRepo } from "./git";
+import { extractContext } from "./context";
 import {
   prioritizePullRequests,
   type PullRequestPriorityResult,
@@ -223,6 +225,24 @@ function buildPullRequestMessages(
 async function buildPullRequestFocus(
   prs: PullRequestWithRepo[]
 ): Promise<PullRequestPriorityResult> {
+  const repoContexts = new Map<string, string>();
+  for (const pr of prs) {
+    const key = `${pr.owner}/${pr.repo_name}`;
+    if (repoContexts.has(key)) continue;
+    try {
+      await ensureRepo(pr.owner, pr.repo_name);
+      const ctx = await extractContext(
+        pr.owner,
+        pr.repo_name,
+        pr.title,
+        pr.body ?? ""
+      );
+      repoContexts.set(key, ctx);
+    } catch {
+      repoContexts.set(key, "");
+    }
+  }
+
   const input = prs.map((pr) => ({
     id: prKey(pr),
     repo: `${pr.owner}/${pr.repo_name}`,
@@ -236,6 +256,7 @@ async function buildPullRequestFocus(
     comments: pr.comments,
     labels: parseLabels(pr.labels),
     url: pr.html_url,
+    context: repoContexts.get(`${pr.owner}/${pr.repo_name}`) || undefined,
   }));
 
   try {

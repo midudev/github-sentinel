@@ -1,7 +1,7 @@
 {
   "name": "github-sentinel",
   "type": "module",
-  "version": "0.0.1",
+  "version": "0.2.0",
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
     "start": "bun src/server/index.ts",

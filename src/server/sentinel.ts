@@ -7,6 +7,8 @@ import {
   type GitHubPullRequest,
 } from "./github";
 import { analyzeIssue, isLLMAvailable } from "./llm";
+import { ensureRepo, getHeadSha, deleteStaleClones } from "./git";
+import { extractContext, clearContextCache } from "./context";
 
 function isExternalAuthor(
   author: GitHubPullRequest["user"],
@@ -20,12 +22,23 @@ function isExternalAuthor(
   return true;
 }
 
-const POLL_INTERVAL_MS = Number(
+import { getSetting } from "./settings";
+
+let POLL_INTERVAL_MS = Number(
   process.env.SENTINEL_INTERVAL_MS ?? 1000 * 60 * 30
 );
 const SCAN_ON_START = ["1", "true", "yes"].includes(
   (process.env.SENTINEL_SCAN_ON_START ?? "").toLowerCase()
 );
+
+function readSentinelConfig() {
+  const fromDb = getSetting("sentinel_interval_ms");
+  POLL_INTERVAL_MS = fromDb ? Number(fromDb) : Number(process.env.SENTINEL_INTERVAL_MS ?? 1000 * 60 * 30);
+}
+
+try {
+  readSentinelConfig();
+} catch {}
 
 let timer: Timer | null = null;
 let isChecking = false;
@@ -57,6 +70,14 @@ async function checkRepo(repo: RepoRow): Promise<CheckResult> {
       now,
       repo.id
     );
+
+    try {
+      const headSha = await getHeadSha(repo.owner, repo.name);
+      if (headSha) {
+        queries.updateHeadSha.run(headSha, repo.id);
+        queries.updateCloneStatus.run("synced", null, repo.id);
+      }
+    } catch {}
 
     const issues = await getOpenIssues(repo.owner, repo.name);
     let newCount = 0;
@@ -183,9 +204,24 @@ export async function runCheck(): Promise<CheckResult[]> {
       `[sentinel] ${lastRun} scan completado: ${results.length} repos, ${totalNew} nuevas`
     );
 
+    void syncRepos().catch((err) => {
+      console.warn(`[sentinel] syncRepos cayó: ${err}`);
+    });
+
     void backgroundAnalyze().catch((err) => {
       console.warn(`[sentinel] backgroundAnalyze cayó: ${err}`);
     });
+
+    if (getSetting("clone_cache_auto_cleanup") === "true") {
+      const maxAge = Number(getSetting("clone_cache_max_age_hours") ?? 72);
+      if (maxAge > 0) {
+        void deleteStaleClones(maxAge).then((deleted) => {
+          if (deleted > 0) {
+            console.log(`[sentinel] auto-cleanup: ${deleted} clones stale (>${maxAge}h) eliminados`);
+          }
+        });
+      }
+    }
   } finally {
     isChecking = false;
   }
@@ -193,40 +229,69 @@ export async function runCheck(): Promise<CheckResult[]> {
   return results;
 }
 
-async function backgroundAnalyze() {
-  const available = await isLLMAvailable();
-  if (!available) return;
-
-  const pending = db
-    .query<
-      {
-        id: number;
-        title: string;
-        body: string | null;
-        labels: string | null;
-        owner: string;
-        repo_name: string;
-      },
-      []
-    >(
-      `SELECT i.id, i.title, i.body, i.labels, r.owner, r.name as repo_name
+const PENDING_ISSUES_SQL = `SELECT i.id, i.repo_id, i.title, i.body, i.labels, r.owner, r.name as repo_name
        FROM issues i
        JOIN repos r ON r.id = i.repo_id
        WHERE i.analyzed_at IS NULL
        ORDER BY i.seen_at DESC
-       LIMIT 5`
-    )
-    .all();
+       LIMIT 5` as const;
+
+type PendingIssue = {
+  id: number;
+  repo_id: number;
+  title: string;
+  body: string | null;
+  labels: string | null;
+  owner: string;
+  repo_name: string;
+};
+
+async function syncRepos() {
+  const repos = queries.listRepos.all();
+  for (const repo of repos) {
+    try {
+      await ensureRepo(repo.owner, repo.name);
+      const headSha = await getHeadSha(repo.owner, repo.name);
+      if (headSha) {
+        queries.updateHeadSha.run(headSha, repo.id);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[sentinel] syncRepo falló para ${repo.owner}/${repo.name}: ${msg}`);
+    }
+  }
+}
+
+async function backgroundAnalyze() {
+  const available = await isLLMAvailable();
+  if (!available) return;
+
+  const pending = db.query<PendingIssue, []>(PENDING_ISSUES_SQL).all();
 
   for (const issue of pending) {
     try {
       const labels = JSON.parse(issue.labels ?? "[]") as string[];
+
+      let context = "";
+      try {
+        context = await extractContext(
+          issue.owner,
+          issue.repo_name,
+          issue.title,
+          issue.body
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[sentinel] contexto no disponible para issue ${issue.id}: ${msg}`);
+      }
+
       const result = await analyzeIssue({
         owner: issue.owner,
         repo: issue.repo_name,
         title: issue.title,
         body: issue.body,
         labels,
+        context: context || undefined,
       });
 
       queries.saveAnalysis.run(
@@ -242,6 +307,20 @@ async function backgroundAnalyze() {
       console.warn(`[sentinel] análisis fallido issue ${issue.id}: ${msg}`);
     }
   }
+  clearContextCache();
+}
+
+export function updateInterval(newMs: number): void {
+  POLL_INTERVAL_MS = newMs;
+  if (timer) {
+    clearInterval(timer);
+    timer = setInterval(() => {
+      void runCheck();
+    }, POLL_INTERVAL_MS);
+  }
+  console.log(
+    `[sentinel] intervalo actualizado a ${(POLL_INTERVAL_MS / 1000 / 60).toFixed(0)} min`
+  );
 }
 
 export function startScheduler() {

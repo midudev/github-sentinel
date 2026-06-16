@@ -1,18 +1,39 @@
-const LLM_URL = (process.env.LLM_URL ?? "http://localhost:1234/v1").replace(
+import { getLLMBaseUrl, getLLMModel, getLLMApiKey, getLLMMaxContextTokens, getLLMMaxOutputTokens, getSetting } from "./settings";
+
+let _LLM_URL = (process.env.LLM_URL ?? "http://localhost:1234/v1").replace(
   /\/$/,
   ""
 );
-const LLM_MODEL = process.env.LLM_MODEL ?? "local-model";
-const LLM_API_KEY = process.env.LLM_API_KEY ?? "sentinel-local";
-const LLM_MAX_CONTEXT_TOKENS = positiveInt(
+let _LLM_MODEL = process.env.LLM_MODEL ?? "local-model";
+let _LLM_API_KEY = process.env.LLM_API_KEY ?? "sentinel-local";
+let _LLM_MAX_CONTEXT_TOKENS = positiveInt(
   process.env.LLM_MAX_CONTEXT_TOKENS,
   4096
 );
-const LLM_MAX_OUTPUT_TOKENS = positiveInt(process.env.LLM_MAX_OUTPUT_TOKENS, 400);
+let _LLM_MAX_OUTPUT_TOKENS = positiveInt(process.env.LLM_MAX_OUTPUT_TOKENS, 400);
+
 const LLM_CONTEXT_SAFETY_TOKENS = positiveInt(
   process.env.LLM_CONTEXT_SAFETY_TOKENS,
   128
 );
+
+function readLLMConfig() {
+  _LLM_URL = getLLMBaseUrl();
+  _LLM_MODEL = getLLMModel();
+  _LLM_API_KEY = getLLMApiKey();
+  _LLM_MAX_CONTEXT_TOKENS = getLLMMaxContextTokens();
+  _LLM_MAX_OUTPUT_TOKENS = getLLMMaxOutputTokens();
+}
+
+export function reloadLLMConfig(): void {
+  readLLMConfig();
+  console.log(`[llm] config recargada: url=${_LLM_URL}, model=${_LLM_MODEL}`);
+}
+
+try {
+  readLLMConfig();
+} catch {}
+
 const APPROX_CHARS_PER_TOKEN = 4;
 const CONTEXT_RETRY_SCALES = [1, 0.5, 0.22] as const;
 
@@ -35,6 +56,7 @@ export type PullRequestPriorityInput = {
   comments: number;
   labels: string[];
   url: string;
+  context?: string;
 };
 
 export type PullRequestPriority = {
@@ -64,7 +86,9 @@ type ChatCompletionPayload = {
 };
 
 const SYSTEM_PROMPT = `Eres un agente de mantenimiento de repositorios open source.
-Recibes una issue y devuelves UN SOLO JSON válido (sin texto extra, sin markdown, sin backticks)
+Recibes una issue y, OPCIONALMENTE, fragmentos de código real del repositorio extraídos con ripgrep.
+Usa ese código para ser preciso en tu análisis. Los archivos indicados en "files" deben coincidir con rutas reales del código cuando sea posible.
+Devuelves UN SOLO JSON válido (sin texto extra, sin markdown, sin backticks)
 con esta forma exacta:
 
 {
@@ -183,12 +207,12 @@ function promptBudgetChars(
   const contextChars =
     Math.max(
       256,
-      LLM_MAX_CONTEXT_TOKENS - LLM_MAX_OUTPUT_TOKENS - LLM_CONTEXT_SAFETY_TOKENS
+      _LLM_MAX_CONTEXT_TOKENS - _LLM_MAX_OUTPUT_TOKENS - LLM_CONTEXT_SAFETY_TOKENS
     ) * APPROX_CHARS_PER_TOKEN;
   const fixedPayloadChars = JSON.stringify({
-    model: LLM_MODEL,
+    model: _LLM_MODEL,
     temperature: 0,
-    max_tokens: LLM_MAX_OUTPUT_TOKENS,
+    max_tokens: _LLM_MAX_OUTPUT_TOKENS,
     response_format: responseFormat,
     messages: [
       { role: "system", content: "" },
@@ -211,7 +235,7 @@ function logContext(operation: string, payload: ChatCompletionPayload): void {
       promptChars
     )} tokens/${promptChars} chars, request=${approxTokens(
       requestChars
-    )} tokens/${requestChars} chars, max=${LLM_MAX_CONTEXT_TOKENS}, output=${payload.max_tokens}`
+    )} tokens/${requestChars} chars, max=${_LLM_MAX_CONTEXT_TOKENS}, output=${payload.max_tokens}`
   );
 }
 
@@ -228,9 +252,12 @@ async function requestChatCompletion(
 ): Promise<string> {
   logContext(operation, payload);
 
-  const res = await fetch(`${LLM_URL}/chat/completions`, {
+  const res = await fetch(`${_LLM_URL}/chat/completions`, {
     method: "POST",
-    headers: authHeaders,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${_LLM_API_KEY}`,
+    },
     body: JSON.stringify(payload),
   });
 
@@ -267,6 +294,7 @@ function buildUserPrompt(input: {
   title: string;
   body: string | null;
   labels: string[];
+  context?: string;
 }, maxChars: number) {
   const labels =
     input.labels
@@ -274,6 +302,11 @@ function buildUserPrompt(input: {
       .map((label) => truncateForPrompt(label, 50))
       .join(", ") || "ninguna";
   const title = truncateForPrompt(input.title, 240);
+
+  const contextBlock = input?.context
+    ? `\nCódigo relevante del repositorio:\n\`\`\`\n${input.context}\n\`\`\`\n`
+    : "";
+
   const withoutBody = `Repositorio: ${input.owner}/${input.repo}
 Labels: ${labels}
 
@@ -281,7 +314,7 @@ Título de la issue:
 ${title}
 
 Descripción:
-
+${contextBlock}
 Devuelve SOLO el JSON, nada más.`;
   const bodyMax = Math.max(0, maxChars - withoutBody.length);
 
@@ -293,7 +326,7 @@ ${title}
 
 Descripción:
 ${input.body ? truncateForPrompt(input.body, bodyMax) : "(sin descripción)"}
-
+${contextBlock}
 Devuelve SOLO el JSON, nada más.`;
 }
 
@@ -318,7 +351,17 @@ function buildPullRequestPriorityPrompt(
       labels: pr.labels.slice(0, 8).map((label) => truncateForPrompt(label, 40)),
     }));
 
-    const prompt = `PRs candidatas en JSON compacto:
+    const ctxBlocks: string[] = [];
+    const seenRepos = new Set<string>();
+    for (const pr of input) {
+      if (pr.context && !seenRepos.has(pr.repo)) {
+        seenRepos.add(pr.repo);
+        ctxBlocks.push(`Código relevante de ${pr.repo}:\n\`\`\`\n${pr.context}\n\`\`\``);
+      }
+    }
+    const ctxSection = ctxBlocks.length > 0 ? ctxBlocks.join("\n\n") + "\n\n" : "";
+
+    const prompt = `${ctxSection}PRs candidatas en JSON compacto:
 ${JSON.stringify(compact)}
 
 Elige máximo 3. Si ninguna merece foco real, devuelve focus vacío.
@@ -339,16 +382,16 @@ Devuelve SOLO el JSON, nada más.`;
   }
 }
 
-const authHeaders: HeadersInit = {
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${LLM_API_KEY}`,
-};
-
 export async function isLLMAvailable(): Promise<boolean> {
   try {
-    const res = await fetch(`${LLM_URL}/models`, {
+    const backend = getSetting("llm_backend") ?? "openai";
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (backend !== "ollama") {
+      headers.Authorization = `Bearer ${_LLM_API_KEY}`;
+    }
+    const res = await fetch(`${_LLM_URL}/models`, {
       signal: AbortSignal.timeout(2000),
-      headers: { Authorization: `Bearer ${LLM_API_KEY}` },
+      headers,
     });
     return res.ok;
   } catch {
@@ -386,14 +429,15 @@ export async function analyzeIssue(input: {
   title: string;
   body: string | null;
   labels: string[];
+  context?: string;
 }): Promise<IssueAnalysis> {
   let content = "";
   for (const [index, scale] of CONTEXT_RETRY_SCALES.entries()) {
     const promptChars = promptBudgetChars(ISSUE_RESPONSE_FORMAT, scale);
     const payload: ChatCompletionPayload = {
-      model: LLM_MODEL,
+      model: _LLM_MODEL,
       temperature: 0.2,
-      max_tokens: LLM_MAX_OUTPUT_TOKENS,
+      max_tokens: _LLM_MAX_OUTPUT_TOKENS,
       response_format: ISSUE_RESPONSE_FORMAT,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
@@ -464,9 +508,9 @@ export async function prioritizePullRequests(
   for (const [index, scale] of CONTEXT_RETRY_SCALES.entries()) {
     const promptChars = promptBudgetChars(PR_PRIORITY_RESPONSE_FORMAT, scale);
     const payload: ChatCompletionPayload = {
-      model: LLM_MODEL,
+      model: _LLM_MODEL,
       temperature: 0.1,
-      max_tokens: LLM_MAX_OUTPUT_TOKENS,
+      max_tokens: _LLM_MAX_OUTPUT_TOKENS,
       response_format: PR_PRIORITY_RESPONSE_FORMAT,
       messages: [
         { role: "system", content: PR_PRIORITY_SYSTEM_PROMPT },
@@ -529,7 +573,11 @@ export async function prioritizePullRequests(
   };
 }
 
+export function getLLMConfig() {
+  return { url: _LLM_URL, model: _LLM_MODEL };
+}
+
 export const llmConfig = {
-  url: LLM_URL,
-  model: LLM_MODEL,
+  get url() { return _LLM_URL; },
+  get model() { return _LLM_MODEL; },
 };

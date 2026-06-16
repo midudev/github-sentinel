@@ -48,7 +48,7 @@ export type Status = {
   issues: number;
   analyzed: number;
   openPRs: number;
-  llm: { available: boolean; url: string; model: string };
+  llm: { available: boolean; url: string; model: string; backend: string };
   whatsapp: {
     enabled: boolean;
     configured: boolean;
@@ -83,6 +83,42 @@ export type UserPreview = {
   user: string;
   total: number;
   repos: RepoPreview[];
+};
+
+export type SettingMeta = {
+  key: string;
+  label: string;
+  category: "github" | "llm" | "monitoring" | "context" | "whatsapp" | "server";
+  type: "text" | "password" | "number" | "boolean" | "cron" | "select";
+  options?: string[];
+  hotReload: boolean;
+  value: string;
+  fallback: string;
+  source: "env" | "db" | "default";
+};
+
+export type SettingsResponse = {
+  settings: SettingMeta[];
+};
+
+export type UpdateSettingsResponse = {
+  ok: true;
+  settings: SettingMeta[];
+};
+
+export type ModelsResponse = {
+  models: Array<{ id: string; name: string }>;
+  current: string | null;
+  url: string | null;
+};
+
+export type CloneCacheStatus = {
+  repoCount: number;
+  totalSizeBytes: number;
+  totalSizeMb: number;
+  oldestHours: number | null;
+  autoCleanup: string | null;
+  maxAgeHours: string | null;
 };
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
@@ -143,6 +179,20 @@ export const api = {
       "/api/check",
       { method: "POST" }
     ),
+  settings: () => request<SettingsResponse>("/api/settings"),
+  updateSetting: (key: string, value: string) =>
+    request<UpdateSettingsResponse>("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key, value }),
+    }),
+  listModels: (params?: Record<string, string>) => {
+    const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+    return request<ModelsResponse>(`/api/settings/models${qs}`);
+  },
+  purgeClones: () =>
+    request<{ ok: true; deleted: number }>("/api/clones/purge", { method: "POST" }),
+  cloneCacheStatus: () => request<CloneCacheStatus>("/api/clones/purge-status"),
   previewDigest: () => request<DigestPreview>("/api/notify/preview"),
   sendDigest: () =>
     request<{

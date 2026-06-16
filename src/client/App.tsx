@@ -5,6 +5,7 @@ import { Header } from "./components/Header";
 import { IssueCard } from "./components/IssueCard";
 import { NotifyPanel } from "./components/NotifyPanel";
 import { RepoList } from "./components/RepoList";
+import { SettingsModal } from "./components/SettingsModal";
 import { Stats } from "./components/Stats";
 
 export function App() {
@@ -12,6 +13,7 @@ export function App() {
   const [repos, setRepos] = useState<Repo[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [checking, setChecking] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [expanded, setExpanded] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -49,10 +51,12 @@ export function App() {
       if (filter === "analyzed" && !issue.analyzed_at) return false;
       if (filter === "pending" && issue.analyzed_at) return false;
       if (filter === "bug" && issue.analysis_type !== "bug") return false;
-      if (filter === "feature" && issue.analysis_type !== "feature") return false;
+      if (filter === "feature" && issue.analysis_type !== "feature")
+        return false;
       if (filter === "high" && issue.analysis_risk !== "high") return false;
       if (q) {
-        const hay = `${issue.title} ${issue.owner}/${issue.repo_name} ${issue.body ?? ""} ${issue.analysis_summary ?? ""}`.toLowerCase();
+        const hay =
+          `${issue.title} ${issue.owner}/${issue.repo_name} ${issue.body ?? ""} ${issue.analysis_summary ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -91,7 +95,12 @@ export function App() {
   return (
     <div className="min-h-screen relative">
       <div className="scanline" />
-      <Header status={status} onCheck={onCheck} checking={checking} />
+      <Header
+        status={status}
+        onCheck={onCheck}
+        checking={checking}
+        onOpenSettings={() => setShowSettings(true)}
+      />
 
       <main className="max-w-6xl mx-auto px-6 py-10 relative z-10">
         <Stats status={status} />
@@ -115,6 +124,7 @@ export function App() {
           <div className="flex flex-wrap items-center gap-2 mb-4">
             {filters.map((f) => (
               <button
+                type="button"
                 key={f.id}
                 onClick={() => setFilter(f.id)}
                 className={`font-pixel uppercase text-[10px] px-2.5 py-1.5 border transition-colors ${
@@ -143,10 +153,8 @@ export function App() {
           </div>
 
           {filteredIssues.length === 0 ? (
-            <div className="border border-dashed border-[var(--color-ink-3)] p-10 text-center text-sm text-[var(--color-fg-3)]">
-              <div className="font-pixel text-2xl text-[var(--color-fg-4)] mb-3">
-                ∅
-              </div>
+            <div className="border border-dashed border-ink-3 p-10 text-center text-sm text-fg-3">
+              <div className="font-pixel text-2xl text-fg-4 mb-3">∅</div>
               {issues.length === 0
                 ? "no signals captured yet — añade repos y pulsa SCAN NOW"
                 : "ningún resultado con esos filtros"}
@@ -169,8 +177,11 @@ export function App() {
           )}
         </section>
 
+        {showSettings && (
+          <SettingsModal onClose={() => setShowSettings(false)} />
+        )}
         <footer className="mt-20 pt-8 border-t border-[var(--color-ink-3)] text-[10px] uppercase tracking-[0.25em] text-[var(--color-fg-4)] flex items-center justify-between">
-          <span>github-sentinel · v0.1</span>
+          <span>github-sentinel · v0.2</span>
           <span>
             poll every {Math.round((status?.intervalMs ?? 0) / 60000)} min ·
             local-first

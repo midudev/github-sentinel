@@ -15,6 +15,24 @@ db.exec("PRAGMA foreign_keys = ON;");
 db.exec("PRAGMA synchronous = NORMAL;");
 db.exec("PRAGMA busy_timeout = 5000;");
 
+function addColumnIfMissing(table: string, column: string, def: string): void {
+  try {
+    const cols = db.query<{ name: string }, []>(
+      `PRAGMA table_info(${table})`
+    ).all();
+    if (!cols.some((c) => c.name === column)) {
+      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${def}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[db] migración ${table}.${column}: ${msg}`);
+  }
+}
+
+addColumnIfMissing("repos", "head_sha", "TEXT");
+addColumnIfMissing("repos", "clone_status", "TEXT DEFAULT 'pending'");
+addColumnIfMissing("repos", "clone_error", "TEXT");
+
 export function closeDatabase() {
   try {
     db.exec("PRAGMA optimize;");
@@ -32,6 +50,9 @@ db.exec(`
     open_issues INTEGER DEFAULT 0,
     added_at TEXT NOT NULL,
     last_checked_at TEXT,
+    head_sha TEXT,
+    clone_status TEXT DEFAULT 'pending',
+    clone_error TEXT,
     UNIQUE(owner, name)
   );
 
@@ -103,6 +124,9 @@ export type RepoRow = {
   open_issues: number;
   added_at: string;
   last_checked_at: string | null;
+  head_sha: string | null;
+  clone_status: string;
+  clone_error: string | null;
 };
 
 export type IssueRow = {
@@ -269,5 +293,14 @@ export const queries = {
   ),
   countOpenPRs: db.query<{ total: number }, []>(
     "SELECT COUNT(*) as total FROM pull_requests WHERE state = 'open' AND draft = 0 AND is_external = 1"
+  ),
+  updateHeadSha: db.prepare(
+    "UPDATE repos SET head_sha = ? WHERE id = ?"
+  ),
+  updateCloneStatus: db.prepare(
+    "UPDATE repos SET clone_status = ?, clone_error = ? WHERE id = ?"
+  ),
+  resetCloneStatus: db.prepare(
+    "UPDATE repos SET clone_status = 'pending', clone_error = NULL, head_sha = NULL"
   ),
 };

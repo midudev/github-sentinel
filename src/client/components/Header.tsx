@@ -5,9 +5,10 @@ type Props = {
   status: Status | null;
   onCheck: () => void;
   checking: boolean;
+  onOpenSettings: () => void;
 };
 
-export function Header({ status, onCheck, checking }: Props) {
+export function Header({ status, onCheck, checking, onOpenSettings }: Props) {
   const llm = status?.llm;
 
   return (
@@ -35,9 +36,10 @@ export function Header({ status, onCheck, checking }: Props) {
             <StatusPill
               label="LLM"
               ok={Boolean(llm?.available)}
-              value={llm?.available ? llm.model : "offline"}
+              value={llm?.available ? `${llm.backend}: ${llm.model}` : "offline"}
             />
           </div>
+
           <div className="hidden md:flex items-baseline gap-2 text-[10px] whitespace-nowrap">
             <span className="uppercase tracking-[0.18em] text-[var(--color-fg-4)]">
               last check
@@ -52,6 +54,13 @@ export function Header({ status, onCheck, checking }: Props) {
             className="font-pixel uppercase text-xs px-3 py-2 border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-[var(--color-ink-0)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
           >
             {checking ? "scanning..." : "scan now"}
+          </button>
+          <button
+            onClick={onOpenSettings}
+            className="font-pixel text-xs px-2 py-1.5 border border-[var(--color-ink-3)] text-[var(--color-fg-3)] hover:border-[var(--color-fg-3)] transition-colors shrink-0"
+            title="Ajustes"
+          >
+            ⚙
           </button>
         </div>
       </div>
