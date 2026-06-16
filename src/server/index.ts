@@ -8,13 +8,13 @@ import {
   parseRepoInput,
   parseUserInput,
 } from "./github";
-import { isLLMAvailable, llmConfig, analyzeIssue } from "./llm";
 import {
-  runCheck,
-  startScheduler,
-  status,
-  stopScheduler,
-} from "./sentinel";
+  isLLMAvailable,
+  llmConfig,
+  analyzeIssue,
+  generateChatResponse,
+} from "./llm";
+import { runCheck, startScheduler, status, stopScheduler } from "./sentinel";
 import {
   digestStatus,
   previewDigest,
@@ -22,12 +22,13 @@ import {
   startDigestScheduler,
   stopDigestScheduler,
 } from "./digest";
+import { seedMockData } from "./mock";
 
 const PORT = Number(process.env.PORT ?? 3741);
 const HOST = process.env.HOST ?? "127.0.0.1";
 const IDLE_TIMEOUT_SECONDS = positiveInt(
   process.env.SERVER_IDLE_TIMEOUT_SECONDS,
-  60
+  60,
 );
 
 const PROJECT_ROOT = process.cwd();
@@ -125,7 +126,7 @@ const server = serve({
       async GET() {
         const cfg = digestStatus().config;
         return json(
-          await previewDigest({ slot: "manual", timezone: cfg.timezone })
+          await previewDigest({ slot: "manual", timezone: cfg.timezone }),
         );
       },
     },
@@ -136,7 +137,7 @@ const server = serve({
           const cfg = digestStatus().config;
           if (!cfg.configured) {
             return badRequest(
-              "WhatsApp no configurado. Define WHATSAPP_PHONE y CALLMEBOT_API_KEY."
+              "WhatsApp no configurado. Define WHATSAPP_PHONE y CALLMEBOT_API_KEY.",
             );
           }
           const result = await runDigest({
@@ -171,7 +172,7 @@ const server = serve({
             meta.description,
             meta.stargazers_count,
             meta.open_issues_count,
-            new Date().toISOString()
+            new Date().toISOString(),
           );
           void runCheck();
           return json(row, { status: 201 });
@@ -260,7 +261,7 @@ const server = serve({
               meta.description ?? null,
               meta.stars ?? 0,
               meta.open_issues ?? 0,
-              now
+              now,
             );
             added++;
           }
@@ -292,7 +293,10 @@ const server = serve({
     "/api/issues": {
       async GET(req) {
         const url = new URL(req.url);
-        const limit = Math.min(Number(url.searchParams.get("limit") ?? 50), 200);
+        const limit = Math.min(
+          Number(url.searchParams.get("limit") ?? 50),
+          200,
+        );
         const issues = queries.listIssues.all(limit).map((row) => ({
           ...row,
           labels: JSON.parse(row.labels ?? "[]"),
@@ -307,7 +311,8 @@ const server = serve({
         if (!Number.isFinite(id)) return badRequest("id inválido");
 
         const issue = queries.getIssue.get(id);
-        if (!issue) return json({ error: "issue no encontrada" }, { status: 404 });
+        if (!issue)
+          return json({ error: "issue no encontrada" }, { status: 404 });
 
         try {
           const labels = JSON.parse(issue.labels ?? "[]") as string[];
@@ -325,7 +330,7 @@ const server = serve({
             result.type,
             result.risk,
             new Date().toISOString(),
-            id
+            id,
           );
 
           return json({ ok: true, analysis: result });
@@ -333,6 +338,58 @@ const server = serve({
           const msg = err instanceof Error ? err.message : String(err);
           return json({ error: msg }, { status: 500 });
         }
+      },
+    },
+
+    "/api/issues/:id/chat": {
+      async GET(req) {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return badRequest("id inválido");
+        const messages = queries.listIssueChat.all(id);
+        return json(messages);
+      },
+      async POST(req) {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return badRequest("id inválido");
+
+        const issue = queries.getIssue.get(id);
+        if (!issue)
+          return json({ error: "issue no encontrada" }, { status: 404 });
+
+        try {
+          const body = (await req.json()) as { message?: string };
+          if (!body.message?.trim()) return badRequest("Falta el mensaje");
+
+          const userMessage = body.message.trim();
+          const now = new Date().toISOString();
+
+          // 1. Guardar mensaje del usuario
+          queries.insertIssueChatMessage.run(id, "user", userMessage, now);
+
+          // 2. Obtener historial previo
+          const history = queries.listIssueChat.all(id);
+
+          // 3. Generar respuesta (ReadableStream)
+          const stream = await generateChatResponse(issue, history, id);
+
+          // 4. Retornar la respuesta como Stream de texto
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/plain; charset=utf-8",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return json({ error: msg }, { status: 500 });
+        }
+      },
+      async DELETE(req) {
+        const id = Number(req.params.id);
+        if (!Number.isFinite(id)) return badRequest("id inválido");
+        queries.clearIssueChat.run(id);
+        return json({ ok: true });
       },
     },
 
@@ -352,6 +409,14 @@ const server = serve({
 
 startScheduler();
 startDigestScheduler();
+
+if (process.env.SENTINEL_SEED_MOCK_DATA !== "false") {
+  try {
+    seedMockData();
+  } catch (err) {
+    console.error("[sentinel] Error al precargar datos mock:", err);
+  }
+}
 
 function ts() {
   return new Date().toISOString();

@@ -105,7 +105,7 @@ export const api = {
     }),
   previewUser: (
     user: string,
-    opts: { excludeForks?: boolean; excludeArchived?: boolean } = {}
+    opts: { excludeForks?: boolean; excludeArchived?: boolean } = {},
   ) =>
     request<UserPreview>("/api/repos/preview", {
       method: "POST",
@@ -119,7 +119,7 @@ export const api = {
       description?: string | null;
       stars?: number;
       open_issues?: number;
-    }>
+    }>,
   ) =>
     request<{ ok: true; total: number; added: number; skipped: number }>(
       "/api/repos/bulk",
@@ -127,21 +127,19 @@ export const api = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repos }),
-      }
+      },
     ),
   removeRepo: (id: number) =>
     request<{ ok: true }>(`/api/repos/${id}`, { method: "DELETE" }),
-  listIssues: (limit = 100) =>
-    request<Issue[]>(`/api/issues?limit=${limit}`),
+  listIssues: (limit = 100) => request<Issue[]>(`/api/issues?limit=${limit}`),
   analyzeIssue: (id: number) =>
-    request<{ ok: true; analysis: Analysis }>(
-      `/api/issues/${id}/analyze`,
-      { method: "POST" }
-    ),
+    request<{ ok: true; analysis: Analysis }>(`/api/issues/${id}/analyze`, {
+      method: "POST",
+    }),
   check: () =>
     request<{ ok: true; results: Array<{ repo: string; newIssues: number }> }>(
       "/api/check",
-      { method: "POST" }
+      { method: "POST" },
     ),
   previewDigest: () => request<DigestPreview>("/api/notify/preview"),
   sendDigest: () =>
@@ -152,8 +150,22 @@ export const api = {
       sent: number;
       prs: number;
       issues: number;
-    }>(
-      "/api/notify/test",
-      { method: "POST" }
-    ),
+    }>("/api/notify/test", { method: "POST" }),
+  listIssueChat: (id: number) =>
+    request<ChatMessage[]>(`/api/issues/${id}/chat`),
+  sendIssueChatMessage: (id: number, message: string) =>
+    fetch(`/api/issues/${id}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    }),
+  clearIssueChat: (id: number) =>
+    request<{ ok: true }>(`/api/issues/${id}/chat`, { method: "DELETE" }),
+};
+
+export type ChatMessage = {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
 };

@@ -92,6 +92,15 @@ db.exec(`
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+
+  CREATE TABLE IF NOT EXISTS issue_chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    issue_id INTEGER NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (issue_id) REFERENCES issues(id) ON DELETE CASCADE
+  );
 `);
 
 export type RepoRow = {
@@ -160,20 +169,20 @@ export type PullRequestWithRepo = PullRequestRow & {
 
 export const queries = {
   listRepos: db.query<RepoRow, []>(
-    "SELECT * FROM repos ORDER BY added_at DESC"
+    "SELECT * FROM repos ORDER BY added_at DESC",
   ),
   getRepo: db.query<RepoRow, [number]>("SELECT * FROM repos WHERE id = ?"),
   findRepo: db.query<RepoRow, [string, string]>(
-    "SELECT * FROM repos WHERE owner = ? AND name = ?"
+    "SELECT * FROM repos WHERE owner = ? AND name = ?",
   ),
   insertRepo: db.prepare(
     `INSERT INTO repos (owner, name, description, stars, open_issues, added_at)
      VALUES (?, ?, ?, ?, ?, ?)
-     RETURNING *`
+     RETURNING *`,
   ),
   updateRepoMeta: db.prepare(
     `UPDATE repos SET description = ?, stars = ?, open_issues = ?, last_checked_at = ?
-     WHERE id = ?`
+     WHERE id = ?`,
   ),
   deleteRepo: db.prepare("DELETE FROM repos WHERE id = ?"),
 
@@ -182,44 +191,44 @@ export const queries = {
      FROM issues i
      JOIN repos r ON r.id = i.repo_id
      ORDER BY i.seen_at DESC
-     LIMIT ?`
+     LIMIT ?`,
   ),
   listIssuesByRepo: db.query<IssueRow, [number]>(
-    `SELECT * FROM issues WHERE repo_id = ? ORDER BY seen_at DESC LIMIT 50`
+    `SELECT * FROM issues WHERE repo_id = ? ORDER BY seen_at DESC LIMIT 50`,
   ),
   getIssue: db.query<IssueWithRepo, [number]>(
     `SELECT i.*, r.owner, r.name as repo_name
      FROM issues i
      JOIN repos r ON r.id = i.repo_id
-     WHERE i.id = ?`
+     WHERE i.id = ?`,
   ),
   hasIssue: db.query<{ id: number }, [number, number]>(
-    "SELECT id FROM issues WHERE repo_id = ? AND issue_number = ?"
+    "SELECT id FROM issues WHERE repo_id = ? AND issue_number = ?",
   ),
   insertIssue: db.prepare(
     `INSERT INTO issues (
       repo_id, issue_number, title, body, html_url, state,
       author, author_avatar, labels, comments, created_at, updated_at, seen_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    RETURNING *`
+    RETURNING *`,
   ),
   saveAnalysis: db.prepare(
     `UPDATE issues
      SET analysis = ?, analysis_summary = ?, analysis_type = ?, analysis_risk = ?, analyzed_at = ?
-     WHERE id = ?`
+     WHERE id = ?`,
   ),
   countIssues: db.query<{ total: number }, []>(
-    "SELECT COUNT(*) as total FROM issues"
+    "SELECT COUNT(*) as total FROM issues",
   ),
   countAnalyzed: db.query<{ total: number }, []>(
-    "SELECT COUNT(*) as total FROM issues WHERE analyzed_at IS NOT NULL"
+    "SELECT COUNT(*) as total FROM issues WHERE analyzed_at IS NOT NULL",
   ),
   getSetting: db.query<{ value: string }, [string]>(
-    "SELECT value FROM settings WHERE key = ?"
+    "SELECT value FROM settings WHERE key = ?",
   ),
   setSetting: db.prepare(
     `INSERT INTO settings (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
   ),
 
   upsertPullRequest: db.prepare(
@@ -241,33 +250,43 @@ export const queries = {
       comments = excluded.comments,
       updated_at = excluded.updated_at,
       closed_at = excluded.closed_at,
-      seen_at = excluded.seen_at`
+      seen_at = excluded.seen_at`,
   ),
   closeMissingPRs: db.prepare(
     `UPDATE pull_requests
      SET state = 'closed', closed_at = COALESCE(closed_at, ?)
-     WHERE repo_id = ? AND state = 'open' AND pr_number NOT IN (SELECT value FROM json_each(?))`
+     WHERE repo_id = ? AND state = 'open' AND pr_number NOT IN (SELECT value FROM json_each(?))`,
   ),
   closeAllRepoPRs: db.prepare(
     `UPDATE pull_requests
      SET state = 'closed', closed_at = COALESCE(closed_at, ?)
-     WHERE repo_id = ? AND state = 'open'`
+     WHERE repo_id = ? AND state = 'open'`,
   ),
   listOpenExternalPRs: db.query<PullRequestWithRepo, []>(
     `SELECT p.*, r.owner, r.name as repo_name
      FROM pull_requests p
      JOIN repos r ON r.id = p.repo_id
      WHERE p.state = 'open' AND p.draft = 0 AND p.is_external = 1
-     ORDER BY p.created_at ASC`
+     ORDER BY p.created_at ASC`,
   ),
   listOpenHighRiskIssues: db.query<IssueWithRepo, []>(
     `SELECT i.*, r.owner, r.name as repo_name
      FROM issues i
      JOIN repos r ON r.id = i.repo_id
      WHERE i.state = 'open' AND i.analysis_risk = 'high'
-     ORDER BY i.created_at DESC`
+     ORDER BY i.created_at DESC`,
   ),
   countOpenPRs: db.query<{ total: number }, []>(
-    "SELECT COUNT(*) as total FROM pull_requests WHERE state = 'open' AND draft = 0 AND is_external = 1"
+    "SELECT COUNT(*) as total FROM pull_requests WHERE state = 'open' AND draft = 0 AND is_external = 1",
   ),
+  listIssueChat: db.query<
+    { id: number; role: string; content: string; created_at: string },
+    [number]
+  >(
+    "SELECT id, role, content, created_at FROM issue_chat WHERE issue_id = ? ORDER BY id ASC",
+  ),
+  insertIssueChatMessage: db.prepare(
+    "INSERT INTO issue_chat (issue_id, role, content, created_at) VALUES (?, ?, ?, ?)",
+  ),
+  clearIssueChat: db.prepare("DELETE FROM issue_chat WHERE issue_id = ?"),
 };

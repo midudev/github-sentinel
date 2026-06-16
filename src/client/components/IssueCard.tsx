@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, type Issue, type Analysis } from "../api";
 import { formatRelative, riskColor, typeLabel } from "../utils";
+import { IssueChat } from "./IssueChat";
 
 type Props = {
   issue: Issue;
@@ -55,7 +56,7 @@ export function IssueCard({
           </span>
           <span
             className={`mt-1 text-[10px] font-pixel uppercase tracking-wider ${riskColor(
-              issue.analysis_risk
+              issue.analysis_risk,
             )}`}
           >
             {typeLabel(issue.analysis_type)}
@@ -137,10 +138,7 @@ export function IssueCard({
               </Section>
 
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-xs">
-                <Meta
-                  label="tipo"
-                  value={analysis.type.toUpperCase()}
-                />
+                <Meta label="tipo" value={analysis.type.toUpperCase()} />
                 <Meta
                   label="riesgo"
                   value={analysis.risk.toUpperCase()}
@@ -169,14 +167,18 @@ export function IssueCard({
               )}
 
               <Section title="propuesta">
-                <p className="text-sm text-[var(--color-fg-1)] whitespace-pre-wrap leading-relaxed">
+                <p className="text-sm text-[var(--color-fg-1)] whitespace-pre-wrap leading-relaxed mb-4">
                   {analysis.proposal}
                 </p>
               </Section>
+
+              <div className="pt-2 border-t border-[var(--color-ink-3)]">
+                <IssueChat issueId={issue.id} issueTitle={issue.title} />
+              </div>
             </div>
           ) : (
             <div className="text-sm text-[var(--color-fg-3)]">
-              Sin análisis todavía.
+              Sin análisis todavía. Analiza esta issue para habilitar el chat.
             </div>
           )}
 
@@ -195,14 +197,12 @@ export function IssueCard({
               className="font-pixel uppercase text-xs px-3 py-1.5 border border-[var(--color-accent)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-[var(--color-ink-0)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               title={llmAvailable ? "" : "LLM no disponible"}
             >
-              {analyzing
-                ? "analyzing..."
-                : analysis
-                ? "re-analyze"
-                : "analyze"}
+              {analyzing ? "analyzing..." : analysis ? "re-analyze" : "analyze"}
             </button>
             {error && (
-              <span className="text-xs text-[var(--color-danger)]">{error}</span>
+              <span className="text-xs text-[var(--color-danger)]">
+                {error}
+              </span>
             )}
           </div>
         </div>
@@ -242,7 +242,9 @@ function Meta({
       <div className="text-[10px] uppercase tracking-wider text-[var(--color-fg-4)]">
         {label}
       </div>
-      <div className={`font-pixel text-sm ${className || "text-[var(--color-fg-1)]"}`}>
+      <div
+        className={`font-pixel text-sm ${className || "text-[var(--color-fg-1)]"}`}
+      >
         {value}
       </div>
     </div>
