@@ -1,73 +1,9 @@
 import { queries, type IssueWithRepo, type PullRequestWithRepo } from "./db";
-import {
-  prioritizePullRequests,
-  type PullRequestPriorityResult,
-} from "./llm";
+import { prioritizePullRequests, type PullRequestPriorityResult } from "./llm";
 
-const CALLMEBOT_URL = "https://api.callmebot.com/whatsapp.php";
-
-const MAX_MESSAGE_LENGTH = 3500;
 const MAX_PRS_FOR_PRIORITY = 12;
 const MAX_PR_DESCRIPTION_CHARS = 500;
 const MAX_ISSUES_IN_DIGEST = 10;
-const PREVIEW_MESSAGE_SEPARATOR = "\n\n---\n\n";
-
-export type WhatsAppConfig = {
-  enabled: boolean;
-  configured: boolean;
-  phone: string | null;
-  timezone: string;
-  cron: string;
-};
-
-export function whatsappConfig(): WhatsAppConfig {
-  const phone = process.env.WHATSAPP_PHONE?.trim() || null;
-  const apikey = process.env.CALLMEBOT_API_KEY?.trim() || null;
-  const enabled = (process.env.WHATSAPP_ENABLED ?? "true").toLowerCase() !== "false";
-  return {
-    enabled,
-    configured: Boolean(phone && apikey),
-    phone: phone ? maskPhone(phone) : null,
-    timezone: process.env.WHATSAPP_TIMEZONE ?? "Europe/Madrid",
-    cron: process.env.WHATSAPP_DIGEST_CRON?.trim() || "0 9,18 * * *",
-  };
-}
-
-function maskPhone(phone: string): string {
-  const clean = phone.replace(/\D/g, "");
-  if (clean.length <= 4) return clean;
-  return `${clean.slice(0, 2)}…${clean.slice(-3)}`;
-}
-
-export async function sendWhatsApp(text: string): Promise<void> {
-  const phone = process.env.WHATSAPP_PHONE?.trim();
-  const apikey = process.env.CALLMEBOT_API_KEY?.trim();
-  if (!phone || !apikey) {
-    throw new Error(
-      "Faltan WHATSAPP_PHONE y/o CALLMEBOT_API_KEY en el entorno."
-    );
-  }
-
-  const truncated =
-    text.length > MAX_MESSAGE_LENGTH
-      ? `${text.slice(0, MAX_MESSAGE_LENGTH - 20)}\n… (truncado)`
-      : text;
-
-  const url = new URL(CALLMEBOT_URL);
-  url.searchParams.set("phone", phone.replace(/\D/g, ""));
-  url.searchParams.set("text", truncated);
-  url.searchParams.set("apikey", apikey);
-
-  const res = await fetch(url.toString(), {
-    method: "GET",
-    signal: AbortSignal.timeout(15_000),
-  });
-
-  const body = await res.text();
-  if (!res.ok || /APIKey is invalid|ERROR/i.test(body)) {
-    throw new Error(`CallMeBot ${res.status}: ${body.slice(0, 200)}`);
-  }
-}
 
 export type DigestItems = {
   prs: PullRequestWithRepo[];
@@ -83,7 +19,9 @@ export type DigestItems = {
   };
 };
 
-export function collectDigestItems(lastScan: string | null = null): DigestItems {
+export function collectDigestItems(
+  lastScan: string | null = null,
+): DigestItems {
   const prsAll = queries.listOpenExternalPRs.all();
   const issuesAll = queries.listOpenHighRiskIssues.all();
   return {
@@ -108,7 +46,7 @@ export type DigestContext = {
 
 export async function buildDigestMessages(
   items: DigestItems,
-  ctx: DigestContext
+  ctx: DigestContext,
 ): Promise<string[]> {
   const time = new Date().toLocaleString("es-ES", {
     timeZone: ctx.timezone,
@@ -127,18 +65,10 @@ export async function buildDigestMessages(
   return [buildFallbackDigestMessage(items, ctx, time)];
 }
 
-export async function buildDigestMessage(
-  items: DigestItems,
-  ctx: DigestContext
-): Promise<string> {
-  const messages = await buildDigestMessages(items, ctx);
-  return messages.join(PREVIEW_MESSAGE_SEPARATOR);
-}
-
 function buildFallbackDigestMessage(
   items: DigestItems,
   ctx: DigestContext,
-  time: string
+  time: string,
 ): string {
   const greeting =
     ctx.slot === "morning"
@@ -155,7 +85,7 @@ function buildFallbackDigestMessage(
     lines.push("✅ Todo en orden, nada pendiente de revisar.");
     lines.push("");
     lines.push(
-      `_${items.totals.repos} repos · ${items.totals.openIssues} issues totales · ${items.totals.analyzedIssues} analizadas_`
+      `_${items.totals.repos} repos · ${items.totals.openIssues} issues totales · ${items.totals.analyzedIssues} analizadas_`,
     );
     if (items.totals.lastScan) {
       lines.push(`_último scan: ${relativeAge(items.totals.lastScan)}_`);
@@ -165,12 +95,12 @@ function buildFallbackDigestMessage(
 
   if (items.issues.length > 0) {
     lines.push(
-      `*Issues high-risk (${items.issues.length}${items.truncatedIssues ? `+${items.truncatedIssues}` : ""})*`
+      `*Issues high-risk (${items.issues.length}${items.truncatedIssues ? `+${items.truncatedIssues}` : ""})*`,
     );
     for (const issue of items.issues) {
       const age = relativeAge(issue.created_at);
       lines.push(
-        `• ${issue.owner}/${issue.repo_name} #${issue.issue_number} · ${age}`
+        `• ${issue.owner}/${issue.repo_name} #${issue.issue_number} · ${age}`,
       );
       lines.push(`  ${truncate(issue.title, 90)}`);
       if (issue.analysis_summary) {
@@ -193,7 +123,7 @@ function truncate(s: string, max: number): string {
 
 function buildPullRequestMessages(
   prs: PullRequestWithRepo[],
-  focus: PullRequestPriorityResult
+  focus: PullRequestPriorityResult,
 ): string[] {
   const byId = new Map(prs.map((pr) => [prKey(pr), pr]));
   const blocks: string[] = [];
@@ -203,7 +133,7 @@ function buildPullRequestMessages(
     if (!pr) continue;
 
     const meta = `${pr.owner}/${pr.repo_name}#${pr.pr_number} · ${relativeAge(
-      pr.created_at
+      pr.created_at,
     )}`;
     const reason = item.reason || truncate(cleanText(pr.title), 110);
 
@@ -221,7 +151,7 @@ function buildPullRequestMessages(
 }
 
 async function buildPullRequestFocus(
-  prs: PullRequestWithRepo[]
+  prs: PullRequestWithRepo[],
 ): Promise<PullRequestPriorityResult> {
   const input = prs.map((pr) => ({
     id: prKey(pr),

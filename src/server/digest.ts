@@ -3,15 +3,19 @@ import { status as sentinelStatus } from "./sentinel";
 import {
   buildDigestMessages,
   collectDigestItems,
-  sendWhatsApp,
-  whatsappConfig,
   type DigestContext,
 } from "./whatsapp";
+import {
+  isThereAnyChannelConfigured,
+  getNotificationsConfig,
+  sendNotifications,
+} from "./notifications/notificationsManager";
+import { NotificationConfig } from "./notifications/types";
 
 const LAST_SENT_AT_KEY = "digest:last_sent_at";
-const WHATSAPP_SEND_INTERVAL_MS = positiveInt(
-  process.env.WHATSAPP_SEND_INTERVAL_MS,
-  5000
+const NOTIFICATION_SEND_INTERVAL_MS = positiveInt(
+  process.env.NOTIFICATION_SEND_INTERVAL_MS,
+  5000,
 );
 
 type DigestRunResult = {
@@ -63,14 +67,13 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function runScheduledDigest(): Promise<void> {
-  const cfg = whatsappConfig();
-  if (!cfg.enabled || !cfg.configured) return;
+  const cfg = getNotificationsConfig();
 
   const slot = currentDigestSlot(cfg.timezone);
   try {
     const result = await runDigest({ slot, timezone: cfg.timezone });
     console.log(
-      `[digest] ${new Date().toISOString()} enviados=${result.sent} cron="${cfg.cron}"`
+      `[digest] ${new Date().toISOString()} enviados=${result.sent} cron="${cfg.cron}"`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -82,13 +85,13 @@ async function executeDigest(ctx: DigestContext): Promise<DigestRunResult> {
   const items = collectDigestItems(sentinelStatus().lastRun);
   const messages = await buildDigestMessages(items, ctx);
   for (const [index, message] of messages.entries()) {
-    if (index > 0 && WHATSAPP_SEND_INTERVAL_MS > 0) {
+    if (index > 0 && NOTIFICATION_SEND_INTERVAL_MS > 0) {
       console.log(
-        `[digest] esperando ${WHATSAPP_SEND_INTERVAL_MS}ms antes del WhatsApp ${index + 1}/${messages.length}`
+        `[digest] esperando ${NOTIFICATION_SEND_INTERVAL_MS}ms antes del WhatsApp ${index + 1}/${messages.length}`,
       );
-      await sleep(WHATSAPP_SEND_INTERVAL_MS);
+      await sleep(NOTIFICATION_SEND_INTERVAL_MS);
     }
-    await sendWhatsApp(message);
+    await sendNotifications(message);
   }
   if (messages.length > 0) {
     queries.setSetting.run(LAST_SENT_AT_KEY, new Date().toISOString());
@@ -105,7 +108,7 @@ async function executeDigest(ctx: DigestContext): Promise<DigestRunResult> {
 export async function runDigest(ctx: DigestContext): Promise<DigestRunResult> {
   if (activeDigest) {
     console.warn(
-      `[digest] ejecución ya en curso desde ${activeDigestStartedAt}; reutilizando resultado`
+      `[digest] ejecución ya en curso desde ${activeDigestStartedAt}; reutilizando resultado`,
     );
     return activeDigest;
   }
@@ -137,22 +140,17 @@ export async function previewDigest(ctx: DigestContext): Promise<{
 
 export function startDigestScheduler(): void {
   if (digestJob) return;
-  const cfg = whatsappConfig();
-  if (!cfg.configured) {
-    console.log(
-      "[digest] WhatsApp no configurado (faltan WHATSAPP_PHONE / CALLMEBOT_API_KEY). Scheduler en pausa."
-    );
-    return;
-  }
-  if (!cfg.enabled) {
-    console.log("[digest] WhatsApp desactivado por WHATSAPP_ENABLED=false.");
+  const cfg = getNotificationsConfig();
+
+  if (!isThereAnyChannelConfigured()) {
+    console.log("[digest] No hay canales configurados. Scheduler en pausa.");
     return;
   }
 
   try {
     digestJob = Bun.cron(cfg.cron, runScheduledDigest);
     console.log(
-      `[digest] activo · cron="${cfg.cron}" UTC · formato ${cfg.timezone}`
+      `[digest] activo · cron="${cfg.cron}" UTC · formato ${cfg.timezone}`,
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -174,13 +172,15 @@ function nextDigestRun(cron: string): string | null {
 }
 
 export function digestStatus(): {
-  config: ReturnType<typeof whatsappConfig>;
+  config: ReturnType<typeof getNotificationsConfig>;
   lastSent: string | null;
   nextRunAt: string | null;
 } {
-  const config = whatsappConfig();
+  const config = getNotificationsConfig();
   const lastSent = queries.getSetting.get(LAST_SENT_AT_KEY)?.value ?? null;
   const nextRunAt =
-    config.enabled && config.configured ? nextDigestRun(config.cron) : null;
+    config.cron && isThereAnyChannelConfigured()
+      ? nextDigestRun(config.cron)
+      : null;
   return { config, lastSent, nextRunAt };
 }

@@ -4,6 +4,8 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "bun --hot src/server/index.ts",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
     "start": "bun src/server/index.ts",
     "start:prod": "NODE_ENV=production bun src/server/index.ts",
     "build": "bun build.ts",
