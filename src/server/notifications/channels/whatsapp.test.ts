@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, spyOn, Mock } from "bun:test";
 import { INotification } from "../types";
-import { create } from "./whatsapp";
+import { create, getWhatsappChannelStatus } from "./whatsapp";
 
 const getExpectedUrl = (text: string) =>
   `https://api.callmebot.com/whatsapp.php?phone=34666123456&text=${text}&apikey=1234567890`;
@@ -23,7 +23,7 @@ describe("Whatsapp", () => {
       );
     });
 
-    it("should send a notification", async () => {
+    it("sends a notification", async () => {
       const whatsapp = create();
 
       if (!whatsapp) {
@@ -38,7 +38,7 @@ describe("Whatsapp", () => {
       );
     });
 
-    it("should truncate the message if it is too long", async () => {
+    it("truncates the message when it is too long", async () => {
       const whatsapp = create();
 
       if (!whatsapp) {
@@ -60,7 +60,7 @@ describe("Whatsapp", () => {
       );
     });
 
-    it("should throw an error if response is not ok", async () => {
+    it("throws when the response is not ok", async () => {
       const whatsapp = create();
 
       if (!whatsapp) {
@@ -80,7 +80,7 @@ describe("Whatsapp", () => {
       process.env.WHATSAPP_ENABLED = "false";
     });
 
-    it("should not initialize the channel", async () => {
+    it("does not initialize the channel when disabled", async () => {
       const whatsapp = create();
 
       expect(whatsapp).toBeNull();
@@ -94,10 +94,36 @@ describe("Whatsapp", () => {
       process.env.CALLMEBOT_API_KEY = "";
     });
 
-    it("should not initialize the channel", async () => {
+    it("does not initialize the channel when not configured", async () => {
       const whatsapp = create();
 
       expect(whatsapp).toBeNull();
+    });
+  });
+
+  describe("getWhatsappChannelStatus", () => {
+    it("returns configured status with masked phone", () => {
+      process.env.WHATSAPP_ENABLED = "true";
+      process.env.WHATSAPP_PHONE = "+34666123456";
+      process.env.CALLMEBOT_API_KEY = "1234567890";
+
+      expect(getWhatsappChannelStatus()).toEqual({
+        enabled: true,
+        configured: true,
+        phone: "34…456",
+      });
+    });
+
+    it("returns not configured when credentials are missing", () => {
+      process.env.WHATSAPP_ENABLED = "true";
+      process.env.WHATSAPP_PHONE = "";
+      process.env.CALLMEBOT_API_KEY = "";
+
+      expect(getWhatsappChannelStatus()).toEqual({
+        enabled: true,
+        configured: false,
+        phone: null,
+      });
     });
   });
 });

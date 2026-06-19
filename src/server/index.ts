@@ -8,7 +8,7 @@ import {
   parseRepoInput,
   parseUserInput,
 } from "./github";
-import { isLLMAvailable, llmConfig, analyzeIssue } from "./llm";
+import { analyzeIssue } from "./llm";
 import { runCheck, startScheduler, status, stopScheduler } from "./sentinel";
 import {
   digestStatus,
@@ -18,7 +18,11 @@ import {
   stopDigestScheduler,
 } from "./digest";
 import { create as createWhatsappChannel } from "./notifications/channels";
-import { initialize as initializeNotificationsManager } from "./notifications/notificationsManager";
+import {
+  initialize as initializeNotificationsManager,
+  isThereAnyChannelConfigured,
+} from "./notifications/notificationsManager";
+import { getStatusPayload } from "./api/status";
 
 const PORT = Number(process.env.PORT ?? 3741);
 const HOST = process.env.HOST ?? "127.0.0.1";
@@ -91,30 +95,7 @@ const server = serve({
 
     "/api/status": {
       async GET() {
-        const repos = queries.listRepos.all();
-        const total = queries.countIssues.get()?.total ?? 0;
-        const analyzed = queries.countAnalyzed.get()?.total ?? 0;
-        const openPRs = queries.countOpenPRs.get()?.total ?? 0;
-        const llmAvailable = await isLLMAvailable();
-        const digest = digestStatus();
-        return json({
-          ...status(),
-          repos: repos.length,
-          issues: total,
-          analyzed,
-          openPRs,
-          llm: {
-            available: llmAvailable,
-            url: llmConfig.url,
-            model: llmConfig.model,
-          },
-          whatsapp: {
-            ...digest.config,
-            lastSent: digest.lastSent,
-            nextRunAt: digest.nextRunAt,
-          },
-          platform: process.platform,
-        });
+        return json(await getStatusPayload());
       },
     },
 
@@ -131,9 +112,9 @@ const server = serve({
       async POST() {
         try {
           const cfg = digestStatus().config;
-          if (!cfg.configured) {
+          if (!isThereAnyChannelConfigured()) {
             return badRequest(
-              "WhatsApp no configurado. Define WHATSAPP_PHONE y CALLMEBOT_API_KEY.",
+              "No hay canales de notificación configurados. Define WHATSAPP_PHONE y CALLMEBOT_API_KEY.",
             );
           }
           const result = await runDigest({

@@ -1,5 +1,5 @@
-import { queries, type IssueWithRepo, type PullRequestWithRepo } from "./db";
-import { prioritizePullRequests, type PullRequestPriorityResult } from "./llm";
+import { queries, type IssueWithRepo, type PullRequestWithRepo } from "../db";
+import { prioritizePullRequests, type PullRequestPriorityResult } from "../llm";
 
 const MAX_PRS_FOR_PRIORITY = 12;
 const MAX_PR_DESCRIPTION_CHARS = 500;

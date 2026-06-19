@@ -4,6 +4,31 @@ const CALLMEBOT_URL = "https://api.callmebot.com/whatsapp.php";
 
 const MAX_MESSAGE_LENGTH = 3500;
 
+export type WhatsappChannelStatus = {
+  enabled: boolean;
+  configured: boolean;
+  phone: string | null;
+};
+
+function maskPhone(phone: string): string {
+  const clean = phone.replace(/\D/g, "");
+  if (clean.length <= 4) return clean;
+  return `${clean.slice(0, 2)}…${clean.slice(-3)}`;
+}
+
+export function getWhatsappChannelStatus(): WhatsappChannelStatus {
+  const phone = process.env.WHATSAPP_PHONE?.trim() || null;
+  const apikey = process.env.CALLMEBOT_API_KEY?.trim() || null;
+  const enabled =
+    (process.env.WHATSAPP_ENABLED ?? "true").toLowerCase() !== "false";
+
+  return {
+    enabled,
+    configured: Boolean(phone && apikey),
+    phone: phone ? maskPhone(phone) : null,
+  };
+}
+
 class Whatsapp implements INotification {
   async sendNotification(text: string): Promise<void> {
     const phone = process.env.WHATSAPP_PHONE?.trim();

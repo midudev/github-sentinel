@@ -4,19 +4,16 @@ import {
   buildDigestMessages,
   collectDigestItems,
   type DigestContext,
-} from "./whatsapp";
+} from "./digest/content";
 import {
   isThereAnyChannelConfigured,
   getNotificationsConfig,
+  getNotificationsSendIntervalMs,
   sendNotifications,
 } from "./notifications/notificationsManager";
-import { NotificationConfig } from "./notifications/types";
 
 const LAST_SENT_AT_KEY = "digest:last_sent_at";
-const NOTIFICATION_SEND_INTERVAL_MS = positiveInt(
-  process.env.NOTIFICATION_SEND_INTERVAL_MS,
-  5000,
-);
+const NOTIFICATION_SEND_INTERVAL_MS = getNotificationsSendIntervalMs();
 
 type DigestRunResult = {
   message: string;
@@ -57,16 +54,13 @@ function currentDigestSlot(timezone: string): DigestContext["slot"] {
   return localTimeInTimezone(timezone).hour < 12 ? "morning" : "evening";
 }
 
-function positiveInt(value: string | undefined, fallback: number): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : fallback;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function runScheduledDigest(): Promise<void> {
+  if (!isThereAnyChannelConfigured()) return;
+
   const cfg = getNotificationsConfig();
 
   const slot = currentDigestSlot(cfg.timezone);
@@ -84,22 +78,30 @@ async function runScheduledDigest(): Promise<void> {
 async function executeDigest(ctx: DigestContext): Promise<DigestRunResult> {
   const items = collectDigestItems(sentinelStatus().lastRun);
   const messages = await buildDigestMessages(items, ctx);
+  let deliveredMessages = 0;
+
   for (const [index, message] of messages.entries()) {
     if (index > 0 && NOTIFICATION_SEND_INTERVAL_MS > 0) {
       console.log(
-        `[digest] esperando ${NOTIFICATION_SEND_INTERVAL_MS}ms antes del WhatsApp ${index + 1}/${messages.length}`,
+        `[digest] esperando ${NOTIFICATION_SEND_INTERVAL_MS}ms antes del mensaje ${index + 1}/${messages.length}`,
       );
       await sleep(NOTIFICATION_SEND_INTERVAL_MS);
     }
-    await sendNotifications(message);
+
+    const deliveredChannels = await sendNotifications(message);
+    if (deliveredChannels > 0) {
+      deliveredMessages++;
+    }
   }
-  if (messages.length > 0) {
+
+  if (deliveredMessages > 0) {
     queries.setSetting.run(LAST_SENT_AT_KEY, new Date().toISOString());
   }
+
   return {
     message: messages.join("\n\n---\n\n"),
     messages,
-    sent: messages.length,
+    sent: deliveredMessages,
     prs: items.prs.length + items.truncatedPRs,
     issues: items.issues.length + items.truncatedIssues,
   };

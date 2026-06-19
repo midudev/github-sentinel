@@ -1,7 +1,10 @@
-import { describe, it, expect, beforeEach, Mock, spyOn } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, Mock, spyOn } from "bun:test";
 import { INotification } from "./notifications/types";
-import { initialize } from "./notifications/notificationsManager";
-import { startDigestScheduler } from "./digest";
+import {
+  getNotificationsConfig,
+  initialize,
+} from "./notifications/notificationsManager";
+import { startDigestScheduler, stopDigestScheduler } from "./digest";
 
 class NotificationImplementation implements INotification {
   async sendNotification(_text: string): Promise<void> {}
@@ -17,27 +20,48 @@ type BunCronMock = Mock<
 const bunCronMock = spyOn(Bun, "cron") as unknown as BunCronMock;
 
 describe("startDigestScheduler", () => {
-  describe("if not channels are configured", () => {
+  beforeEach(() => {
+    stopDigestScheduler();
+    bunCronMock.mockClear();
+  });
+
+  afterEach(() => {
+    stopDigestScheduler();
+    bunCronMock.mockClear();
+  });
+
+  describe("when no channels are configured", () => {
     beforeEach(() => {
       initialize([]);
     });
 
-    it("should not schedule the digest", () => {
+    it("does not schedule the digest", () => {
       startDigestScheduler();
 
       expect(bunCronMock).not.toHaveBeenCalled();
     });
   });
 
-  describe("if channels are configured", () => {
+  describe("when channels are configured", () => {
     beforeEach(() => {
       initialize([new NotificationImplementation()]);
     });
 
-    it("should schedule the digest", () => {
+    it("schedules the digest with configured cron", () => {
       startDigestScheduler();
 
-      expect(bunCronMock).toHaveBeenCalled();
+      expect(bunCronMock).toHaveBeenCalledTimes(1);
+      expect(bunCronMock).toHaveBeenCalledWith(
+        getNotificationsConfig().cron,
+        expect.any(Function),
+      );
+    });
+
+    it("does not register duplicate cron jobs", () => {
+      startDigestScheduler();
+      startDigestScheduler();
+
+      expect(bunCronMock).toHaveBeenCalledTimes(1);
     });
   });
 });
