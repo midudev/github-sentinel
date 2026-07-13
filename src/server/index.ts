@@ -139,6 +139,9 @@ const server = serve({
               "WhatsApp no configurado. Define WHATSAPP_PHONE y CALLMEBOT_API_KEY."
             );
           }
+          if (!cfg.enabled) {
+            return badRequest("WhatsApp está deshabilitado (WHATSAPP_ENABLED=false).");
+          }
           const result = await runDigest({
             slot: "manual",
             timezone: cfg.timezone,
