@@ -72,6 +72,20 @@ Bun carga `.env` automáticamente. Variables:
 
 > Token recomendado: [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new) → "Only select repositories" → solo los que quieras vigilar → permisos `Issues: Read-only` y `Metadata: Read-only`.
 
+### Ejemplo: endpoint remoto compatible con OpenAI
+
+Además de los servidores locales, puedes configurar un endpoint remoto compatible con OpenAI:
+
+```env
+LLM_URL=https://api.ai-router.dev/v1
+LLM_API_KEY=<tu-api-key>
+LLM_MODEL=<id-de-modelo-habilitado-en-tu-cuenta>
+```
+
+[AI-ROUTER](https://ai-router.dev/es/openai-compatible-api-gateway/) es un servicio independiente con una API compatible con OpenAI. Crea una clave y usa en `LLM_MODEL` un identificador disponible en tu cuenta antes de iniciar el servicio.
+
+> Al configurar un proveedor remoto, los títulos y cuerpos de las issues analizados por el agente se enviarán a ese proveedor. Para repositorios con información sensible, revisa el flujo de datos y las condiciones del proveedor elegido.
+
 ---
 
 ## Endpoints
