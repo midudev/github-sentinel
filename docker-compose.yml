@@ -1,0 +1,15 @@
+services:
+  github-sentinel:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: github-sentinel
+    restart: unless-stopped
+    ports:
+      - "3741:3741"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+    volumes:
+      - ./data:/usr/src/app/data

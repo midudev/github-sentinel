@@ -1,0 +1,12 @@
+.cursor
+.vscode
+data
+node_modules
+.env.example
+CLAUDE.md
+README.md
+.git
+.gitignore
+Dockerfile*
+docker-compose*
+.dockerignore
