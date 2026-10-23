@@ -6,6 +6,7 @@ import { IssueCard } from "./components/IssueCard";
 import { NotifyPanel } from "./components/NotifyPanel";
 import { RepoList } from "./components/RepoList";
 import { Stats } from "./components/Stats";
+import { DashboardCharts } from "./components/DashboardCharts";
 
 export function App() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -49,10 +50,12 @@ export function App() {
       if (filter === "analyzed" && !issue.analyzed_at) return false;
       if (filter === "pending" && issue.analyzed_at) return false;
       if (filter === "bug" && issue.analysis_type !== "bug") return false;
-      if (filter === "feature" && issue.analysis_type !== "feature") return false;
+      if (filter === "feature" && issue.analysis_type !== "feature")
+        return false;
       if (filter === "high" && issue.analysis_risk !== "high") return false;
       if (q) {
-        const hay = `${issue.title} ${issue.owner}/${issue.repo_name} ${issue.body ?? ""} ${issue.analysis_summary ?? ""}`.toLowerCase();
+        const hay =
+          `${issue.title} ${issue.owner}/${issue.repo_name} ${issue.body ?? ""} ${issue.analysis_summary ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -95,6 +98,7 @@ export function App() {
 
       <main className="max-w-6xl mx-auto px-6 py-10 relative z-10">
         <Stats status={status} />
+        <DashboardCharts issues={issues} />
 
         <section className="mb-12">
           <SectionTitle index="01" title="watched repositories" />
